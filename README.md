@@ -26,7 +26,7 @@ This writes `slides.pptx` next to `slides.md`. The full repository URL works too
 npx git+https://github.com/danielgjackson/marp-to-editable-pptx-cli.git slides.md
 ```
 
-The first run takes a little longer because npm clones and builds the tool. Later runs use npm's cache.
+The first run takes a little longer because npm clones the tool and installs its dependencies. Later runs use npm's cache.
 
 To install the commands permanently:
 
@@ -182,7 +182,7 @@ Relative image paths in a deck resolve from the deck's own directory. For Markdo
 
 ### Relationship to `marp-to-editable-pptx`
 
-The upstream project is used **directly as an npm dependency**, installed from GitHub and pinned to a release tag:
+The upstream project is used **directly as an npm (dev) dependency**, installed from GitHub and pinned to a release tag. It is only needed to build `dist/cli.js`, which bundles the parts of it this tool uses:
 
 ```json
 "marp-to-editable-pptx": "github:KatsuYuzu/marp-to-editable-pptx#v1.4.1"
@@ -197,12 +197,14 @@ To move to a newer upstream release, change the tag in `package.json`, copy over
 ## Development
 
 ```sh
-npm install          # also builds dist/cli.js (via "prepare")
-npm run build        # rebuild dist/cli.js
+npm install          # install dependencies (does not build)
+npm run bundle       # rebuild dist/cli.js
 npm run typecheck    # type-check src/ (and the upstream sources it imports)
-npm test             # build, then run the CLI tests (the end-to-end test needs Chrome/Edge)
+npm test             # rebundle, then run the CLI tests (the end-to-end test needs Chrome/Edge)
 node dist/cli.js --help
 ```
+
+`dist/cli.js` is committed, so installing from GitHub needs no build step. Rebundle and commit it whenever `src/` or the upstream tag changes. There is deliberately no `build`, `prepare` or `prepack` script: npm would then "prepare" the package when installing it from git, and with `--global` that preparation step installs into the global folder instead of the clone, so the build fails with `Cannot find module 'esbuild'`.
 
 The source is in `src/`: `cli.ts` is the entry point, `options.ts` handles argument parsing, `plan.ts` expands inputs and applies the overwrite/update rules, and `convert.ts` runs a single conversion.
 

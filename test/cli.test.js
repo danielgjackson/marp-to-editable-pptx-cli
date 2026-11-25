@@ -1,5 +1,5 @@
 // Black-box tests of argument handling and job planning, via --dry-run (no
-// browser needed). Run `npm run build` first.
+// browser needed). Run `npm run bundle` first.
 'use strict'
 
 const { test } = require('node:test')

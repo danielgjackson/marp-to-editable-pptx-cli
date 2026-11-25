@@ -27,22 +27,22 @@
     "node": ">=20.16"
   },
   "scripts": {
-    "build": "node scripts/build.js",
-    "prepare": "node scripts/build.js",
+    "bundle": "node scripts/build.js",
+    "prepublishOnly": "node scripts/build.js",
     "typecheck": "tsc --noEmit",
-    "test": "npm run build && node --test test/*.test.js"
+    "test": "npm run bundle && node --test test/*.test.js"
   },
   "dependencies": {
     "@marp-team/marp-cli": "^4.3.1",
     "@puppeteer/browsers": "^2.13.0",
     "cosmiconfig": "^9.0.1",
-    "marp-to-editable-pptx": "github:KatsuYuzu/marp-to-editable-pptx#v1.4.1",
     "pptxgenjs": "^4.0.1",
     "puppeteer-core": "^24.40.0"
   },
   "devDependencies": {
     "@types/node": "^26.6.10",
     "esbuild": "^0.28.2",
+    "marp-to-editable-pptx": "github:KatsuYuzu/marp-to-editable-pptx#v1.4.1",
     "typescript": "^7.0.2"
   }
 }
