@@ -1,0 +1,48 @@
+{
+  "name": "marp-to-editable-pptx-cli",
+  "version": "0.1.0",
+  "description": "Command-line tool to convert Marp Markdown into editable PowerPoint (.pptx), powered by marp-to-editable-pptx",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/danielgjackson/marp-to-editable-pptx-cli.git"
+  },
+  "keywords": [
+    "marp",
+    "pptx",
+    "powerpoint",
+    "presentation",
+    "markdown",
+    "cli"
+  ],
+  "type": "commonjs",
+  "bin": {
+    "marp-to-editable-pptx-cli": "dist/cli.js",
+    "marp2pptx": "dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=20.16"
+  },
+  "scripts": {
+    "build": "node scripts/build.js",
+    "prepare": "node scripts/build.js",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run build && node --test test/*.test.js"
+  },
+  "dependencies": {
+    "@marp-team/marp-cli": "^4.3.1",
+    "@puppeteer/browsers": "^2.13.0",
+    "cosmiconfig": "^9.0.1",
+    "marp-to-editable-pptx": "github:KatsuYuzu/marp-to-editable-pptx#v1.4.1",
+    "pptxgenjs": "^4.0.1",
+    "puppeteer-core": "^24.40.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.10",
+    "esbuild": "^0.28.2",
+    "typescript": "^7.0.2"
+  }
+}
