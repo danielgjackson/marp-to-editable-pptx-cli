@@ -175,6 +175,59 @@ Relative image paths in a deck resolve from the deck's own directory. For Markdo
 | `2` | Invalid usage, for example bad or unsupported options, or a missing input. |
 | `130` | Interrupted. |
 
+## API
+
+As with [Marp CLI's API](https://github.com/marp-team/marp-cli#api), the tool can be used from Node.js when it is installed as a dependency of your project:
+
+```sh
+npm install github:danielgjackson/marp-to-editable-pptx-cli
+```
+
+`marpCli()` takes an array of command-line arguments (any of those in [Options](#options)) and returns a Promise that resolves to the [exit status](#exit-codes) the command would have produced:
+
+```js
+import { marpCli } from 'marp-to-editable-pptx-cli'
+// or: const { marpCli } = require('marp-to-editable-pptx-cli')
+
+try {
+  const exitStatus = await marpCli(['slide-deck.md', '-o', 'handout.pptx', '--force'])
+
+  if (exitStatus > 0) {
+    console.error(`Failure (Exit status: ${exitStatus})`)
+  } else {
+    console.log('Success')
+  }
+} catch (err) {
+  console.error(err)
+}
+```
+
+The Promise rejects with an `Error` if the run is stopped before any conversion. For invalid usage (bad or unsupported options, a missing input, …) the error is a `CLIError`, whose `errorCode` is a `CLIErrorCode` value. The codes match the exit codes, so invalid usage is `CLIErrorCode.INVALID_OPTIONS` (`2`):
+
+```js
+import { marpCli, CLIError } from 'marp-to-editable-pptx-cli'
+
+try {
+  await marpCli(['foobar.md'])
+} catch (err) {
+  if (err instanceof CLIError) {
+    console.error(`CLI Error (Error code: ${err.errorCode}):`, err)
+  } else {
+    console.error('Unexpected error:', err)
+  }
+}
+```
+
+Failed conversions don't reject. They resolve with exit status `1`, as the command does when one file fails, possibly after others have been converted (see `--keep-going`).
+
+Notes:
+
+- Progress and error messages are written to the process's stderr, as on the command line. Pass `--quiet` to show only errors.
+- Relative paths resolve from `process.cwd()`.
+- Unlike the command, `marpCli()` doesn't read Markdown from stdin when no input is given. It rejects with a usage error instead of waiting for input. Pass `-` as an input to read stdin explicitly, or `marpCli(argv, { stdin: true })` to use the command's behaviour.
+- While conversions run, Ctrl+C (`SIGINT`) and `SIGTERM` cancel them, and the Promise resolves with `130`. These signal handlers are removed when the Promise settles.
+- TypeScript declarations are included.
+
 ## How it works
 
 1. Marp CLI renders the Markdown to HTML in a temporary file next to the source, so that relative image paths resolve.
@@ -204,9 +257,9 @@ npm test             # rebundle, then run the CLI tests (the end-to-end test nee
 node dist/cli.js --help
 ```
 
-`dist/cli.js` is committed, so installing from GitHub needs no build step. Rebundle and commit it whenever `src/` or the upstream tag changes. There is deliberately no `build`, `prepare` or `prepack` script: npm would then "prepare" the package when installing it from git, and with `--global` that preparation step installs into the global folder instead of the clone, so the build fails with `Cannot find module 'esbuild'`.
+`dist/cli.js` is committed, so installing from GitHub needs no build step. It is both the command and the package's `main` module, and the hand-written `types/index.d.ts` describes its API: keep that file in step when the API changes. Rebundle and commit it whenever `src/` or the upstream tag changes. There is deliberately no `build`, `prepare` or `prepack` script: npm would then "prepare" the package when installing it from git, and with `--global` that preparation step installs into the global folder instead of the clone, so the build fails with `Cannot find module 'esbuild'`.
 
-The source is in `src/`: `cli.ts` is the entry point, `options.ts` handles argument parsing, `plan.ts` expands inputs and applies the overwrite/update rules, and `convert.ts` runs a single conversion.
+The source is in `src/`: `cli.ts` is the entry point and the `marpCli()` API, `error.ts` defines `CLIError`, `options.ts` handles argument parsing, `plan.ts` expands inputs and applies the overwrite/update rules, and `convert.ts` runs a single conversion.
 
 ## Credits
 

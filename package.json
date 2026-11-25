@@ -13,15 +13,26 @@
     "powerpoint",
     "presentation",
     "markdown",
-    "cli"
+    "cli",
+    "api"
   ],
   "type": "commonjs",
+  "main": "dist/cli.js",
+  "types": "types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./types/index.d.ts",
+      "default": "./dist/cli.js"
+    },
+    "./package.json": "./package.json"
+  },
   "bin": {
     "marp-to-editable-pptx-cli": "dist/cli.js",
     "marp2pptx": "dist/cli.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "types"
   ],
   "engines": {
     "node": ">=20.16"

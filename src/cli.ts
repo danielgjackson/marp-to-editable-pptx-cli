@@ -2,6 +2,7 @@ import { unlinkSync } from 'node:fs'
 // Reused directly from the upstream VS Code extension's sources.
 import { detectBrowserPath } from 'marp-to-editable-pptx/src/native-pptx/browser'
 import { convertFile, pendingTempFiles } from './convert'
+import { CLIError, CLIErrorCode } from './error'
 import { parseCliArgs, USAGE, UsageError, type CliOptions } from './options'
 import { planJobs, STDIO, type Job } from './plan'
 
@@ -69,15 +70,35 @@ async function run(opts: CliOptions): Promise<number> {
   // Ctrl+C: abort the current conversion. Temporary files are removed
   // synchronously on exit, because puppeteer's own SIGINT handler (enabled by
   // upstream's launch options) calls process.exit() straight away.
-  process.on('exit', removePendingTempFiles)
+  // The listeners are removed again afterwards, so that marpCli() leaves a
+  // host application's process as it found it.
   const controller = new AbortController()
   const onSignal = (sig: NodeJS.Signals) => {
     if (controller.signal.aborted) process.exit(130)
     info(`\nReceived ${sig}, stopping...`)
     controller.abort(new DOMException('Conversion cancelled', 'AbortError'))
   }
+  process.on('exit', removePendingTempFiles)
   process.on('SIGINT', onSignal)
   process.on('SIGTERM', onSignal)
+  try {
+    return await runJobs(jobs, opts, browserPath, controller, info, error)
+  } finally {
+    process.off('SIGINT', onSignal)
+    process.off('SIGTERM', onSignal)
+    process.off('exit', removePendingTempFiles)
+    removePendingTempFiles()
+  }
+}
+
+async function runJobs(
+  jobs: Job[],
+  opts: CliOptions,
+  browserPath: string | undefined,
+  controller: AbortController,
+  info: (msg: string) => void,
+  error: (msg: string) => void,
+): Promise<number> {
 
   let converted = 0
   let skipped = 0
@@ -152,44 +173,67 @@ async function run(opts: CliOptions): Promise<number> {
   return failed > 0 ? 1 : 0
 }
 
-async function main(): Promise<void> {
-  let opts: CliOptions
-  try {
-    opts = parseCliArgs(process.argv.slice(2))
-  } catch (err) {
-    if (!(err instanceof UsageError)) throw err
-    process.stderr.write(`error: ${err.message}\nTry --help for usage.\n`)
-    process.exit(2)
-  }
+/** Options for {@link marpCli}. */
+export interface MarpCLIAPIOptions {
+  /**
+   * Read Markdown from standard input when no input is given, as the
+   * command-line tool does when data is piped to it. Default: `false`, so a
+   * call without inputs fails with a usage error instead of waiting on the
+   * host process's stdin. An explicit `-` input always reads stdin.
+   */
+  stdin?: boolean
+}
+
+/**
+ * Run the CLI with the given arguments (without the leading `node` and script
+ * path), as Marp CLI's `marpCli()` does. Messages go to stderr and stdout as
+ * they would from the command line.
+ *
+ * Resolves with the exit status the command would have returned: 0 on
+ * success, 1 if a conversion failed or an existing output was not
+ * overwritten, 130 if interrupted. Rejects with a {@link CLIError} (errorCode
+ * {@link CLIErrorCode.INVALID_OPTIONS}) for invalid usage, and with other
+ * errors for unexpected failures.
+ */
+export async function marpCli(argv: string[], options: MarpCLIAPIOptions = {}): Promise<number> {
+  const opts = parseCliArgs(argv)
 
   if (opts.help) {
     process.stdout.write(USAGE)
-    return
+    return 0
   }
   if (opts.version) {
     process.stdout.write(
       `marp-to-editable-pptx-cli ${__CLI_VERSION__} (marp-to-editable-pptx ${__UPSTREAM_VERSION__})\n`,
     )
-    return
+    return 0
   }
-  if (opts.inputs.length === 0 && process.stdin.isTTY) {
-    process.stderr.write(USAGE)
-    process.exit(2)
+  if (opts.inputs.length === 0 && (!options.stdin || process.stdin.isTTY)) {
+    throw new UsageError('no input files given')
   }
 
+  return run(opts)
+}
+
+async function main(): Promise<void> {
+  const argv = process.argv.slice(2)
   try {
-    process.exitCode = await run(opts)
+    process.exitCode = await marpCli(argv, { stdin: true })
   } catch (err) {
-    if (err instanceof UsageError) {
+    if (!(err instanceof CLIError)) throw err
+    if (err.errorCode === CLIErrorCode.INVALID_OPTIONS) {
+      // Without any input or options, show the usage instead.
+      if (argv.length === 0) process.stderr.write(USAGE)
+      else process.stderr.write(`error: ${err.message}\nTry --help for usage.\n`)
+    } else {
       process.stderr.write(`error: ${err.message}\n`)
-      process.exitCode = 2
-      return
     }
-    throw err
+    process.exitCode = err.errorCode
   }
 }
 
-// Run only when executed as a program, so tests can require() the bundle.
+// Run only when executed as a program, so that the bundle can also be
+// require()d / imported as a library.
 if (require.main === module) {
   main().catch((err) => {
     process.stderr.write(`error: ${err instanceof Error ? err.stack : String(err)}\n`)
@@ -197,4 +241,6 @@ if (require.main === module) {
   })
 }
 
+export { CLIError, CLIErrorCode }
+// Used by the tests to find a browser for the end-to-end test.
 export { detectBrowserPath }

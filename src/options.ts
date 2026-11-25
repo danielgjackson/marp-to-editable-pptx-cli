@@ -1,4 +1,5 @@
 import { parseArgs } from 'node:util'
+import { CLIError, CLIErrorCode } from './error'
 
 export type BrowserPreference = 'auto' | 'chrome' | 'edge'
 
@@ -29,7 +30,12 @@ export interface CliOptions {
   version: boolean
 }
 
-export class UsageError extends Error {}
+/** Invalid usage (exit status 2). */
+export class UsageError extends CLIError {
+  constructor(message: string) {
+    super(message, CLIErrorCode.INVALID_OPTIONS)
+  }
+}
 
 /** Marp CLI's default for --parallel. */
 export const DEFAULT_PARALLEL = 5

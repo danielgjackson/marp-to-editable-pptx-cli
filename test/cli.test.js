@@ -216,6 +216,31 @@ test('missing --config file is a usage error', () => {
   assert.match(r.err, /config file not found/)
 })
 
+test('programmatic API: marpCli() resolves with the exit status', async () => {
+  const { marpCli, CLIError, CLIErrorCode } = require(CLI)
+  const cwd = fixture()
+  const prevCwd = process.cwd()
+  process.chdir(cwd)
+  try {
+    assert.equal(await marpCli(['-n', '-q', 'decks/a.md']), 0)
+    // An existing output is not overwritten: exit status 1, not a rejection.
+    fs.writeFileSync('decks/a.pptx', '')
+    setMtime('decks/a.md', 10)
+    assert.equal(await marpCli(['-q', 'decks/a.md']), 1)
+    // Signal handlers are not left installed on the host process.
+    assert.equal(process.listenerCount('SIGINT'), 0)
+  } finally {
+    process.chdir(prevCwd)
+  }
+  for (const argv of [[], ['missing.md'], ['--pdf', 'x.md']]) {
+    await assert.rejects(marpCli(argv), (err) => {
+      assert.ok(err instanceof CLIError)
+      assert.equal(err.errorCode, CLIErrorCode.INVALID_OPTIONS)
+      return true
+    })
+  }
+})
+
 // End-to-end conversion; needs Chrome/Edge, so it is skipped when none is found.
 const { detectBrowserPath } = (() => {
   try {

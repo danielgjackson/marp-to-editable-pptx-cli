@@ -31,7 +31,10 @@ var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: tru
 // src/cli.ts
 var cli_exports = {};
 __export(cli_exports, {
-  detectBrowserPath: () => detectBrowserPath
+  CLIError: () => CLIError,
+  CLIErrorCode: () => CLIErrorCode,
+  detectBrowserPath: () => detectBrowserPath,
+  marpCli: () => marpCli2
 });
 module.exports = __toCommonJS(cli_exports);
 var import_node_fs3 = require("node:fs");
@@ -2686,7 +2689,30 @@ var import_cosmiconfig = require("cosmiconfig");
 
 // src/options.ts
 var import_node_util = require("node:util");
-var UsageError = class extends Error {
+
+// src/error.ts
+var CLIErrorCode = {
+  /** A conversion failed, or an existing output was not overwritten. */
+  GENERAL_ERROR: 1,
+  /** Invalid usage: bad or unsupported options, or a missing input. */
+  INVALID_OPTIONS: 2,
+  /** The conversion was interrupted. */
+  INTERRUPTED: 130
+};
+var CLIError = class extends Error {
+  errorCode;
+  constructor(message, errorCode = CLIErrorCode.GENERAL_ERROR) {
+    super(message);
+    this.name = "CLIError";
+    this.errorCode = errorCode;
+  }
+};
+
+// src/options.ts
+var UsageError = class extends CLIError {
+  constructor(message) {
+    super(message, CLIErrorCode.INVALID_OPTIONS);
+  }
 };
 var DEFAULT_PARALLEL = 5;
 var USAGE = `Usage:
@@ -3232,7 +3258,6 @@ async function run(opts) {
       return 1;
     }
   }
-  process.on("exit", removePendingTempFiles);
   const controller = new AbortController();
   const onSignal = (sig) => {
     if (controller.signal.aborted) process.exit(130);
@@ -3240,8 +3265,19 @@ async function run(opts) {
 Received ${sig}, stopping...`);
     controller.abort(new DOMException("Conversion cancelled", "AbortError"));
   };
+  process.on("exit", removePendingTempFiles);
   process.on("SIGINT", onSignal);
   process.on("SIGTERM", onSignal);
+  try {
+    return await runJobs(jobs, opts, browserPath, controller, info, error);
+  } finally {
+    process.off("SIGINT", onSignal);
+    process.off("SIGTERM", onSignal);
+    process.off("exit", removePendingTempFiles);
+    removePendingTempFiles();
+  }
+}
+async function runJobs(jobs, opts, browserPath, controller, info, error) {
   let converted = 0;
   let skipped = 0;
   let failed = 0;
@@ -3308,42 +3344,40 @@ Received ${sig}, stopping...`);
   }
   return failed > 0 ? 1 : 0;
 }
-async function main() {
-  let opts;
-  try {
-    opts = parseCliArgs(process.argv.slice(2));
-  } catch (err) {
-    if (!(err instanceof UsageError)) throw err;
-    process.stderr.write(`error: ${err.message}
-Try --help for usage.
-`);
-    process.exit(2);
-  }
+async function marpCli2(argv, options = {}) {
+  const opts = parseCliArgs(argv);
   if (opts.help) {
     process.stdout.write(USAGE);
-    return;
+    return 0;
   }
   if (opts.version) {
     process.stdout.write(
       `marp-to-editable-pptx-cli ${"0.1.0"} (marp-to-editable-pptx ${"1.4.1"})
 `
     );
-    return;
+    return 0;
   }
-  if (opts.inputs.length === 0 && process.stdin.isTTY) {
-    process.stderr.write(USAGE);
-    process.exit(2);
+  if (opts.inputs.length === 0 && (!options.stdin || process.stdin.isTTY)) {
+    throw new UsageError("no input files given");
   }
+  return run(opts);
+}
+async function main() {
+  const argv = process.argv.slice(2);
   try {
-    process.exitCode = await run(opts);
+    process.exitCode = await marpCli2(argv, { stdin: true });
   } catch (err) {
-    if (err instanceof UsageError) {
+    if (!(err instanceof CLIError)) throw err;
+    if (err.errorCode === CLIErrorCode.INVALID_OPTIONS) {
+      if (argv.length === 0) process.stderr.write(USAGE);
+      else process.stderr.write(`error: ${err.message}
+Try --help for usage.
+`);
+    } else {
       process.stderr.write(`error: ${err.message}
 `);
-      process.exitCode = 2;
-      return;
     }
-    throw err;
+    process.exitCode = err.errorCode;
   }
 }
 if (require.main === module) {
@@ -3355,5 +3389,8 @@ if (require.main === module) {
 }
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
-  detectBrowserPath
+  CLIError,
+  CLIErrorCode,
+  detectBrowserPath,
+  marpCli
 });
