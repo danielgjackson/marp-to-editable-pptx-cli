@@ -23,3 +23,6 @@ Thumbs.db
 
 # Local scratch space
 _local
+
+# Example output
+example/*.pptx

@@ -255,7 +255,11 @@ npm run bundle       # rebuild dist/cli.js
 npm run typecheck    # type-check src/ (and the upstream sources it imports)
 npm test             # rebundle, then run the CLI tests (the end-to-end test needs Chrome/Edge)
 node dist/cli.js --help
+./example/build.sh   # build example/example.pptx with the CLI (needs Chrome/Edge)
+node example/build.js  # the same, with the marpCli() API
 ```
+
+`example/example.md` is a sample deck for checking the output by hand: it covers text formatting, lists, a table, code, colour directives and speaker notes. Open the generated `example/example.pptx` (git-ignored) in PowerPoint to check that everything is editable.
 
 `dist/cli.js` is committed, so installing from GitHub needs no build step. It is both the command and the package's `main` module, and the hand-written `types/index.d.ts` describes its API: keep that file in step when the API changes. Rebundle and commit it whenever `src/` or the upstream tag changes. There is deliberately no `build`, `prepare` or `prepack` script: npm would then "prepare" the package when installing it from git, and with `--global` that preparation step installs into the global folder instead of the clone, so the build fails with `Cannot find module 'esbuild'`.
 
