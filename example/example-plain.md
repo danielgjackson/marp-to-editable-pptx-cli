@@ -61,8 +61,9 @@ console.log(status === 0 ? 'Success' : 'Failure')
 
 ---
 
+<!-- _backgroundImage: none -->
 <!-- _backgroundColor: #1e3a5f -->
-<!-- _color: white -->
+<!-- _color: red -->
 
 # Slide colours
 
