@@ -32,12 +32,14 @@
   },
   "files": [
     "dist",
-    "types"
+    "types",
+    "scripts/apply-patches.js"
   ],
   "engines": {
     "node": ">=20.16"
   },
   "scripts": {
+    "postinstall": "node scripts/apply-patches.js",
     "bundle": "node scripts/build.js",
     "prepublishOnly": "node scripts/build.js",
     "typecheck": "tsc --noEmit",
@@ -55,6 +57,7 @@
     "@types/node": "^26.6.10",
     "esbuild": "^0.28.2",
     "marp-to-editable-pptx": "github:KatsuYuzu/marp-to-editable-pptx#v1.4.1",
+    "patch-package": "^8.0.1",
     "typescript": "^7.0.2"
   }
 }

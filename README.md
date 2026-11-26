@@ -252,7 +252,15 @@ No submodule or fork is needed. Upstream's package doesn't ship compiled JavaScr
 
 Upstream's runtime libraries (`@marp-team/marp-cli`, `puppeteer-core`, `@puppeteer/browsers`, `pptxgenjs`, `cosmiconfig`) are listed as direct dependencies with the same version ranges. They stay external to the bundle and resolve reliably with any package manager.
 
-To move to a newer upstream release, change the tag in `package.json`, copy over any changed version ranges for the libraries above, and run `npm install && npm test`.
+To move to a newer upstream release, change the tag in `package.json`, copy over any changed version ranges for the libraries above, and run `npm install && npm test`. If patch-package then reports that a patch no longer applies, check whether upstream has fixed the problem (then delete the patch) or update the patch (see below).
+
+### Patches to upstream
+
+Fixes to upstream's sources are kept in `patches/` and applied with [patch-package](https://github.com/ds300/patch-package). `npm install` applies them (the `postinstall` script, `scripts/apply-patches.js`), and `npm run bundle` applies them again before bundling, so `dist/cli.js` is never built from unpatched sources. When the tool is installed to be used rather than built, upstream isn't installed and the script does nothing.
+
+- `marp-to-editable-pptx+1.4.1.patch`: a slide with a CSS background (the `backgroundImage` directive, or a gradient from the theme) has that background captured as a screenshot of the slide with its content hidden. Upstream hides only the slide's direct children, which leaves visible any element with its own `visibility` rule. In particular, the items of a fragmented list (`* item` rather than `- item`) are revealed for the export with `visibility: visible !important`, so they were baked into the background image as well as added as editable text. The patch hides every element in the slide, and restores each one's previous inline style afterwards.
+
+To change a patch, edit the file under `node_modules/marp-to-editable-pptx/`, then run `npx patch-package marp-to-editable-pptx` to regenerate it.
 
 ## Development
 

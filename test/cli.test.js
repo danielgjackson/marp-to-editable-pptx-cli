@@ -317,3 +317,32 @@ test('optimization stores a repeated background image once', { timeout: 180_000 
   assert.match(optimized.media[0], /^ppt\/media\/[0-9a-f]{16}\.png$/)
   assert.ok(optimized.size < plain.size / 2, `${optimized.size} < ${plain.size} / 2`)
 })
+
+test('fragmented lists are not baked into a rasterized background', { timeout: 180_000 }, async (t) => {
+  const browser = process.env.CHROME_PATH || detectBrowserPath?.('auto')
+  if (!browser) return t.skip('no Chromium-based browser found')
+  const JSZip = require('jszip')
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'marp2pptx-test-'))
+  fs.writeFileSync(
+    path.join(cwd, 'bg.svg'),
+    '<svg xmlns="http://www.w3.org/2000/svg" width="160" height="90">' +
+      '<rect width="160" height="90" fill="#cde"/><circle cx="80" cy="45" r="30" fill="#468"/></svg>',
+  )
+  // The same slide twice: `- item` is a plain list, `* item` a fragmented one.
+  fs.writeFileSync(
+    path.join(cwd, 'deck.md'),
+    "---\nmarp: true\nbackgroundImage: url('bg.svg')\n---\n\n- one\n- two\n\n---\n\n* one\n* two\n",
+  )
+  const r = run(['--allow-local-files', '--no-optimize', 'deck.md'], { cwd })
+  assert.equal(r.code, 0, r.err)
+  const zip = await JSZip.loadAsync(fs.readFileSync(path.join(cwd, 'deck.pptx')))
+  const [plain, fragmented] = await Promise.all(
+    ['Slide-1-image-1.png', 'Slide-2-image-1.png'].map((n) =>
+      zip.file(`ppt/media/${n}`).async('nodebuffer'),
+    ),
+  )
+  assert.ok(plain.equals(fragmented), 'both slides have the same, content-free background')
+  // The list text is still there, as editable text.
+  const xml = await zip.file('ppt/slides/slide2.xml').async('string')
+  assert.match(xml, /<a:t>one<\/a:t>[\s\S]*<a:t>two<\/a:t>/)
+})

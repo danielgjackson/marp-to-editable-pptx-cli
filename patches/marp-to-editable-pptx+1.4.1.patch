@@ -1,0 +1,63 @@
+diff --git a/node_modules/marp-to-editable-pptx/src/native-pptx/index.ts b/node_modules/marp-to-editable-pptx/src/native-pptx/index.ts
+index 9126436..ac2c0d7 100644
+--- a/node_modules/marp-to-editable-pptx/src/native-pptx/index.ts
++++ b/node_modules/marp-to-editable-pptx/src/native-pptx/index.ts
+@@ -562,12 +562,28 @@ async function hideSectionChildren(
+   // may be off-screen; viewport-based detection would target the wrong slide).
+   // Hide children and check for section existence in a single page.evaluate
+   // round-trip to avoid the extra Puppeteer IPC overhead of two sequential calls.
++  //
++  // Every descendant is hidden, not only the direct children: hiding a parent
++  // relies on `visibility` being inherited, which a descendant's own rule
++  // overrides, e.g. the `[data-bespoke-marp-fragment="inactive"]
++  // {visibility:visible!important}` rule injected to reveal fragmented lists
++  // (`* item`), which would otherwise leave those list items in the background.
++  // Each element's previous inline value is saved so it can be put back.
+   const found = await page.evaluate((id: string) => {
+     const section = document.getElementById(id)
+     if (!section) return false
+-    Array.from(section.children).forEach((el) =>
+-      (el as HTMLElement).style.setProperty('visibility', 'hidden', 'important'),
+-    )
++    const saved: Array<[HTMLElement, string, string]> = []
++    section.querySelectorAll('*').forEach((node) => {
++      const el = node as HTMLElement
++      if (!el.style) return
++      saved.push([
++        el,
++        el.style.getPropertyValue('visibility'),
++        el.style.getPropertyPriority('visibility'),
++      ])
++      el.style.setProperty('visibility', 'hidden', 'important')
++    })
++    ;(window as any).__nativePptxHiddenSectionStyles = saved
+     return true
+   }, String(slideIdx + 1))
+   if (!found) {
+@@ -582,14 +598,18 @@ async function restoreSectionChildren(
+   page: Page,
+   slideIdx: number,
+ ): Promise<void> {
+-  // Mirror of hideSectionChildren; see that function for rationale.
+-  await page.evaluate((id: string) => {
+-    const section = document.getElementById(id)
+-    if (!section) return
+-    Array.from(section.children).forEach((el) =>
+-      (el as HTMLElement).style.removeProperty('visibility'),
+-    )
+-  }, String(slideIdx + 1))
++  // Mirror of hideSectionChildren: put back the inline `visibility` values it
++  // recorded (slideIdx is kept for the setup/teardown signature).
++  void slideIdx
++  await page.evaluate(() => {
++    const saved: Array<[HTMLElement, string, string]> =
++      (window as any).__nativePptxHiddenSectionStyles ?? []
++    delete (window as any).__nativePptxHiddenSectionStyles
++    for (const [el, value, priority] of saved) {
++      if (value) el.style.setProperty('visibility', value, priority)
++      else el.style.removeProperty('visibility')
++    }
++  })
+ }
+ 
+ // ---------------------------------------------------------------------------

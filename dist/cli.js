@@ -2376,9 +2376,18 @@ async function hideSectionChildren(page, slideIdx) {
   const found = await page.evaluate((id) => {
     const section = document.getElementById(id);
     if (!section) return false;
-    Array.from(section.children).forEach(
-      (el) => el.style.setProperty("visibility", "hidden", "important")
-    );
+    const saved = [];
+    section.querySelectorAll("*").forEach((node) => {
+      const el = node;
+      if (!el.style) return;
+      saved.push([
+        el,
+        el.style.getPropertyValue("visibility"),
+        el.style.getPropertyPriority("visibility")
+      ]);
+      el.style.setProperty("visibility", "hidden", "important");
+    });
+    window.__nativePptxHiddenSectionStyles = saved;
     return true;
   }, String(slideIdx + 1));
   if (!found) {
@@ -2388,13 +2397,15 @@ async function hideSectionChildren(page, slideIdx) {
   }
 }
 async function restoreSectionChildren(page, slideIdx) {
-  await page.evaluate((id) => {
-    const section = document.getElementById(id);
-    if (!section) return;
-    Array.from(section.children).forEach(
-      (el) => el.style.removeProperty("visibility")
-    );
-  }, String(slideIdx + 1));
+  void slideIdx;
+  await page.evaluate(() => {
+    const saved = window.__nativePptxHiddenSectionStyles ?? [];
+    delete window.__nativePptxHiddenSectionStyles;
+    for (const [el, value, priority] of saved) {
+      if (value) el.style.setProperty("visibility", value, priority);
+      else el.style.removeProperty("visibility");
+    }
+  });
 }
 function isLocalImagePath(url) {
   if (!url) return false;
