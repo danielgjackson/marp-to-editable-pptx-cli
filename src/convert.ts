@@ -5,6 +5,7 @@ import { format } from 'node:util'
 import { marpCli } from '@marp-team/marp-cli'
 // Reused directly from the upstream VS Code extension's sources.
 import { generateNativePptx } from 'marp-to-editable-pptx/src/native-pptx/index'
+import { optimizePptx } from './optimize'
 import type { CliOptions } from './options'
 import { STDIO } from './plan'
 
@@ -134,7 +135,7 @@ export async function convertFile(req: ConvertRequest): Promise<void> {
     signal.throwIfAborted()
 
     // Step 2: HTML → editable PPTX (marp-to-editable-pptx)
-    const pptx = await generateNativePptx({
+    let pptx = await generateNativePptx({
       htmlPath,
       browserPath: req.browserPath,
       signal,
@@ -142,7 +143,28 @@ export async function convertFile(req: ConvertRequest): Promise<void> {
     })
     signal.throwIfAborted()
 
-    // Step 3: write the result (atomically, via a temporary file + rename).
+    // Step 3: shrink the package (shared media, compression); see optimize.ts.
+    if (opts.optimize) {
+      let result
+      try {
+        result = await optimizePptx(pptx)
+      } catch (error) {
+        throw new Error(
+          `could not optimize the PPTX (use --no-optimize to skip this step): ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        )
+      }
+      const kb = (n: number) => `${Math.round(n / 1024)} KB`
+      log(
+        `Optimized PPTX: ${kb(pptx.length)} -> ${kb(result.data.length)}` +
+          ` (media files: ${result.mediaBefore} -> ${result.mediaAfter})`,
+      )
+      pptx = result.data
+      signal.throwIfAborted()
+    }
+
+    // Step 4: write the result (atomically, via a temporary file + rename).
     if (req.output === STDIO) {
       await new Promise<void>((resolve, reject) =>
         process.stdout.write(pptx, (err) => (err ? reject(err) : resolve())),

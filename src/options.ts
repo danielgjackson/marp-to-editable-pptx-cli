@@ -22,6 +22,8 @@ export interface CliOptions {
   allowLocalFiles: boolean
   browser: BrowserPreference
   browserPath?: string
+  /** Post-process the PPTX to share duplicate media and compress it (--no-optimize). */
+  optimize: boolean
   marpArgs: string[]
   quiet: boolean
   /** -d, --debug (Marp CLI) or --verbose (pandoc). */
@@ -93,6 +95,8 @@ Batch and overwrite options (extensions):
   -r, --recursive          Include subfolders of directories given as <files>
       --output-dir <dir>   Write outputs for <files> into <dir>
   -q, --quiet              Only print errors
+      --no-optimize        Keep the PPTX exactly as generated: don't merge
+                           duplicate images or compress the file
       --verbose            Same as --debug
 
 Examples:
@@ -177,6 +181,7 @@ export function parseCliArgs(argv: string[]): CliOptions {
         recursive: { type: 'boolean', short: 'r' },
         'output-dir': { type: 'string' },
         quiet: { type: 'boolean', short: 'q' },
+        optimize: { type: 'boolean' },
         verbose: { type: 'boolean' },
       },
     })
@@ -271,6 +276,7 @@ export function parseCliArgs(argv: string[]): CliOptions {
     allowLocalFiles: !!v['allow-local-files'],
     browser: browser as BrowserPreference,
     browserPath: v['browser-path'] ?? (process.env.CHROME_PATH || undefined),
+    optimize: v.optimize !== false,
     marpArgs,
     quiet: !!v.quiet,
     verbose: !!v.debug || !!v.verbose,

@@ -102,6 +102,7 @@ Added options:
 | `-r, --recursive` | Include subfolders of directories given as plain arguments (`-I` always does). |
 | `--output-dir <dir>` | Write the outputs for the given files into `<dir>`, created if needed. Named files go directly into `<dir>`; a directory argument keeps its layout. |
 | `-q, --quiet` | Only print errors. |
+| `--no-optimize` | Write the PPTX exactly as the converter produced it, without the size optimization described in [How it works](#how-it-works). |
 | `--verbose` | Same as `--debug`. |
 
 ### Examples
@@ -232,6 +233,12 @@ Notes:
 
 1. Marp CLI renders the Markdown to HTML in a temporary file next to the source, so that relative image paths resolve.
 2. `marp-to-editable-pptx`'s `generateNativePptx()` opens that HTML in a headless browser, reads the laid-out slides from the DOM, and builds an editable presentation with PptxGenJS.
+3. The PPTX package is then made smaller, without changing what it shows (skip this with `--no-optimize`):
+   - **Shared images.** PptxGenJS writes a separate copy of an image for every slide that uses it, so a deck-wide background image is repeated on every slide. Each file in `ppt/media/` is renamed after a SHA-256 hash of its content, so identical copies become one file, and the slides' relationships are pointed at it.
+   - **Compression.** PptxGenJS stores every part uncompressed. The XML parts are now deflated. Images that are already compressed (PNG, JPEG, …) are stored as they are.
+   - `[Content_Types].xml` loses the entries PptxGenJS writes for slide masters that don't exist.
+
+   For the examples in `example/`, this takes `example-plain.pptx` from 130 KB to 32 KB and `example-theme.pptx` from 387 KB to 77 KB.
 
 ### Relationship to `marp-to-editable-pptx`
 

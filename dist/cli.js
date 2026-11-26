@@ -112,9 +112,9 @@ function detectPlatform() {
 }
 
 // src/convert.ts
-var import_node_crypto = require("node:crypto");
+var import_node_crypto2 = require("node:crypto");
 var import_promises2 = require("node:fs/promises");
-var import_node_path3 = __toESM(require("node:path"));
+var import_node_path4 = __toESM(require("node:path"));
 var import_node_util2 = require("node:util");
 var import_marp_cli = require("@marp-team/marp-cli");
 
@@ -2682,9 +2682,132 @@ function buildPartialBgJobs(slides) {
   });
 }
 
+// src/optimize.ts
+var import_node_crypto = require("node:crypto");
+var import_node_path2 = __toESM(require("node:path"));
+var import_jszip = __toESM(require("jszip"));
+var MEDIA_DIR = "ppt/media/";
+var CONTENT_TYPES = "[Content_Types].xml";
+var PRECOMPRESSED = /* @__PURE__ */ new Set([
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".gif",
+  ".webp",
+  ".mp4",
+  ".m4v",
+  ".mp3",
+  ".m4a",
+  ".xlsx",
+  ".docx",
+  ".pptx",
+  ".zip"
+]);
+function relsSourceDir(relsPath) {
+  return import_node_path2.default.posix.dirname(import_node_path2.default.posix.dirname(relsPath)).replace(/^\.$/, "");
+}
+function safeDecode(s) {
+  try {
+    return decodeURIComponent(s);
+  } catch {
+    return s;
+  }
+}
+function resolveTarget(sourceDir, target) {
+  const decoded = safeDecode(target);
+  if (decoded.startsWith("/")) return import_node_path2.default.posix.normalize(decoded).slice(1);
+  return import_node_path2.default.posix.normalize(import_node_path2.default.posix.join(sourceDir || ".", decoded));
+}
+function attr(element, name) {
+  const m = new RegExp(`\\s${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)')`).exec(element);
+  return m ? m[1] ?? m[2] : void 0;
+}
+function setAttr(element, name, value) {
+  return element.replace(
+    new RegExp(`(\\s${name}\\s*=\\s*)(?:"[^"]*"|'[^']*')`),
+    (_, prefix) => `${prefix}"${value}"`
+  );
+}
+async function optimizePptx(input) {
+  const zip = await import_jszip.default.loadAsync(input);
+  const entries = Object.values(zip.files).filter((f) => !f.dir);
+  const parts = /* @__PURE__ */ new Map();
+  for (const entry of entries) {
+    parts.set(entry.name, { data: await entry.async("nodebuffer"), date: entry.date });
+  }
+  const renamed = /* @__PURE__ */ new Map();
+  const hashOfName = /* @__PURE__ */ new Map();
+  let mediaBefore = 0;
+  for (const [name, { data: data2 }] of parts) {
+    if (!name.startsWith(MEDIA_DIR) || name.slice(MEDIA_DIR.length).includes("/")) continue;
+    mediaBefore++;
+    const hash = (0, import_node_crypto.createHash)("sha256").update(data2).digest("hex");
+    const ext = import_node_path2.default.posix.extname(name);
+    let newName = `${MEDIA_DIR}${hash.slice(0, 16)}${ext}`;
+    const taken = hashOfName.get(newName);
+    if (taken !== void 0 && taken !== hash) newName = `${MEDIA_DIR}${hash}${ext}`;
+    hashOfName.set(newName, hash);
+    renamed.set(name, newName);
+  }
+  const out = /* @__PURE__ */ new Map();
+  for (const [name, part] of parts) {
+    const target = renamed.get(name) ?? name;
+    if (!out.has(target)) out.set(target, part);
+  }
+  for (const [name, part] of out) {
+    if (!name.endsWith(".rels")) continue;
+    const sourceDir = relsSourceDir(name);
+    const xml = part.data.toString("utf8");
+    const updated = xml.replace(/<Relationship\b[^>]*>/g, (element) => {
+      if (attr(element, "TargetMode") === "External") return element;
+      const target = attr(element, "Target");
+      if (target === void 0) return element;
+      const newName = renamed.get(resolveTarget(sourceDir, target));
+      if (newName === void 0) return element;
+      const newTarget = target.startsWith("/") ? `/${newName}` : import_node_path2.default.posix.relative(sourceDir, newName);
+      return setAttr(element, "Target", newTarget);
+    });
+    if (updated !== xml) out.set(name, { ...part, data: Buffer.from(updated, "utf8") });
+  }
+  const contentTypes = out.get(CONTENT_TYPES);
+  if (contentTypes) {
+    const present = new Set([...out.keys()].map((n) => n.toLowerCase()));
+    const xml = contentTypes.data.toString("utf8");
+    const updated = xml.replace(/<Override\b[^>]*\/>\s*/g, (element) => {
+      const partName = attr(element, "PartName");
+      if (partName === void 0) return element;
+      const name = import_node_path2.default.posix.normalize(safeDecode(partName)).replace(/^\//, "");
+      const newName = renamed.get(name) ?? name;
+      if (!present.has(newName.toLowerCase())) return "";
+      return newName === name ? element : setAttr(element, "PartName", `/${newName}`);
+    });
+    out.set(CONTENT_TYPES, { ...contentTypes, data: Buffer.from(updated, "utf8") });
+  }
+  const result = new import_jszip.default();
+  const names = [...out.keys()].sort(
+    (a, b) => a === CONTENT_TYPES ? -1 : b === CONTENT_TYPES ? 1 : 0
+  );
+  for (const name of names) {
+    const { data: data2, date } = out.get(name);
+    const stored = PRECOMPRESSED.has(import_node_path2.default.posix.extname(name).toLowerCase());
+    result.file(name, data2, {
+      date,
+      createFolders: false,
+      compression: stored ? "STORE" : "DEFLATE",
+      compressionOptions: stored ? null : { level: 9 }
+    });
+  }
+  const data = await result.generateAsync({ type: "nodebuffer" });
+  return {
+    data,
+    mediaBefore,
+    mediaAfter: new Set(renamed.values()).size
+  };
+}
+
 // src/plan.ts
 var import_node_fs2 = require("node:fs");
-var import_node_path2 = __toESM(require("node:path"));
+var import_node_path3 = __toESM(require("node:path"));
 var import_cosmiconfig = require("cosmiconfig");
 
 // src/options.ts
@@ -2768,6 +2891,8 @@ Batch and overwrite options (extensions):
   -r, --recursive          Include subfolders of directories given as <files>
       --output-dir <dir>   Write outputs for <files> into <dir>
   -q, --quiet              Only print errors
+      --no-optimize        Keep the PPTX exactly as generated: don't merge
+                           duplicate images or compress the file
       --verbose            Same as --debug
 
 Examples:
@@ -2842,6 +2967,7 @@ function parseCliArgs(argv) {
         recursive: { type: "boolean", short: "r" },
         "output-dir": { type: "string" },
         quiet: { type: "boolean", short: "q" },
+        optimize: { type: "boolean" },
         verbose: { type: "boolean" }
       }
     });
@@ -2925,6 +3051,7 @@ function parseCliArgs(argv) {
     allowLocalFiles: !!v["allow-local-files"],
     browser,
     browserPath: v["browser-path"] ?? (process.env.CHROME_PATH || void 0),
+    optimize: v.optimize !== false,
     marpArgs,
     quiet: !!v.quiet,
     verbose: !!v.debug || !!v.verbose,
@@ -2949,7 +3076,7 @@ function tryStat(p) {
   }
 }
 function isMarkdownFile(name) {
-  return MARKDOWN_EXTENSIONS.has(import_node_path2.default.extname(name).toLowerCase());
+  return MARKDOWN_EXTENSIONS.has(import_node_path3.default.extname(name).toLowerCase());
 }
 function findMarkdownFiles(dir, recursive) {
   const found = [];
@@ -2958,7 +3085,7 @@ function findMarkdownFiles(dir, recursive) {
   );
   for (const entry of entries) {
     if (entry.name.startsWith(".")) continue;
-    const full = import_node_path2.default.join(dir, entry.name);
+    const full = import_node_path3.default.join(dir, entry.name);
     if (entry.isDirectory()) {
       if (recursive && !SKIPPED_DIRECTORIES.has(entry.name)) {
         found.push(...findMarkdownFiles(full, recursive));
@@ -2970,14 +3097,14 @@ function findMarkdownFiles(dir, recursive) {
   return found;
 }
 function replaceExtension(file, ext) {
-  const parsed = import_node_path2.default.parse(file);
-  return import_node_path2.default.join(parsed.dir, parsed.name + ext);
+  const parsed = import_node_path3.default.parse(file);
+  return import_node_path3.default.join(parsed.dir, parsed.name + ext);
 }
 function makeConfigFinder() {
   const explorer = (0, import_cosmiconfig.cosmiconfigSync)("marp", { searchStrategy: "project" });
   const cache = /* @__PURE__ */ new Map();
   return (dir) => {
-    const key = import_node_path2.default.resolve(dir);
+    const key = import_node_path3.default.resolve(dir);
     if (!cache.has(key)) {
       const found = explorer.search(key);
       cache.set(key, found && !found.isEmpty ? found.filepath : void 0);
@@ -2996,8 +3123,8 @@ function sharedDependencyMtime(opts) {
     latest = Math.max(latest, st.mtimeMs);
     if (st.isDirectory()) {
       for (const name of (0, import_node_fs2.readdirSync)(p)) {
-        if (import_node_path2.default.extname(name).toLowerCase() !== ".css") continue;
-        latest = Math.max(latest, tryStat(import_node_path2.default.join(p, name))?.mtimeMs ?? 0);
+        if (import_node_path3.default.extname(name).toLowerCase() !== ".css") continue;
+        latest = Math.max(latest, tryStat(import_node_path3.default.join(p, name))?.mtimeMs ?? 0);
       }
     }
   }
@@ -3019,7 +3146,7 @@ function planJobs(opts) {
     const st = tryStat(input);
     if (!st) throw new UsageError(`input not found: ${input}`);
     const add = (file, base) => {
-      const key = import_node_path2.default.resolve(file);
+      const key = import_node_path3.default.resolve(file);
       if (seen.has(key)) return;
       seen.add(key);
       sources.push({ file, base });
@@ -3032,7 +3159,7 @@ function planJobs(opts) {
       }
       for (const file of files) add(file, input);
     } else {
-      add(input, import_node_path2.default.dirname(input));
+      add(input, import_node_path3.default.dirname(input));
     }
   }
   if (opts.output !== void 0 && sources.length !== 1) {
@@ -3049,9 +3176,9 @@ function planJobs(opts) {
         'reading from standard input requires --output (use "-o -" to write to standard output)'
       );
     } else if (opts.outputDir !== void 0) {
-      output = import_node_path2.default.join(
+      output = import_node_path3.default.join(
         opts.outputDir,
-        replaceExtension(import_node_path2.default.relative(base, file), ".pptx")
+        replaceExtension(import_node_path3.default.relative(base, file), ".pptx")
       );
     } else {
       output = replaceExtension(file, ".pptx");
@@ -3061,8 +3188,8 @@ function planJobs(opts) {
   const outputs = /* @__PURE__ */ new Map();
   for (const job of jobs) {
     if (job.output === STDIO) continue;
-    const key = import_node_path2.default.resolve(job.output);
-    if (job.input !== STDIO && key === import_node_path2.default.resolve(job.input)) {
+    const key = import_node_path3.default.resolve(job.output);
+    if (job.input !== STDIO && key === import_node_path3.default.resolve(job.input)) {
       throw new UsageError(`output would overwrite its input: ${job.input}`);
     }
     const other = outputs.get(key);
@@ -3081,7 +3208,7 @@ function planJobs(opts) {
   } else if (!opts.noConfig) {
     const findConfig = makeConfigFinder();
     for (const job of jobs) {
-      const dir = job.input === STDIO ? process.cwd() : import_node_path2.default.dirname(job.input);
+      const dir = job.input === STDIO ? process.cwd() : import_node_path3.default.dirname(job.input);
       job.config = findConfig(dir);
     }
   }
@@ -3109,8 +3236,8 @@ function planJobs(opts) {
 // src/convert.ts
 var pendingTempFiles = /* @__PURE__ */ new Set();
 function tempName(dir, suffix) {
-  const id = (0, import_node_crypto.randomBytes)(6).toString("hex");
-  const file = import_node_path3.default.join(dir, `.marp-editable-pptx-${id}${suffix}`);
+  const id = (0, import_node_crypto2.randomBytes)(6).toString("hex");
+  const file = import_node_path4.default.join(dir, `.marp-editable-pptx-${id}${suffix}`);
   pendingTempFiles.add(file);
   return file;
 }
@@ -3171,7 +3298,7 @@ async function convertFile(req) {
       cleanup.push(inputPath);
       await (0, import_promises2.writeFile)(inputPath, await readStdin());
     }
-    const htmlPath = tempName(import_node_path3.default.dirname(import_node_path3.default.resolve(inputPath)), ".html");
+    const htmlPath = tempName(import_node_path4.default.dirname(import_node_path4.default.resolve(inputPath)), ".html");
     cleanup.push(htmlPath);
     log("Rendering Markdown with Marp CLI");
     const { exitCode, output } = await serialized(
@@ -3185,20 +3312,36 @@ ${output}` : "")
       );
     }
     signal.throwIfAborted();
-    const pptx = await generateNativePptx({
+    let pptx = await generateNativePptx({
       htmlPath,
       browserPath: req.browserPath,
       signal,
       onProgress: log
     });
     signal.throwIfAborted();
+    if (opts.optimize) {
+      let result;
+      try {
+        result = await optimizePptx(pptx);
+      } catch (error) {
+        throw new Error(
+          `could not optimize the PPTX (use --no-optimize to skip this step): ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
+      const kb = (n) => `${Math.round(n / 1024)} KB`;
+      log(
+        `Optimized PPTX: ${kb(pptx.length)} -> ${kb(result.data.length)} (media files: ${result.mediaBefore} -> ${result.mediaAfter})`
+      );
+      pptx = result.data;
+      signal.throwIfAborted();
+    }
     if (req.output === STDIO) {
       await new Promise(
         (resolve, reject) => process.stdout.write(pptx, (err) => err ? reject(err) : resolve())
       );
       return;
     }
-    const outDir = import_node_path3.default.dirname(import_node_path3.default.resolve(req.output));
+    const outDir = import_node_path4.default.dirname(import_node_path4.default.resolve(req.output));
     await (0, import_promises2.mkdir)(outDir, { recursive: true });
     const tmpOut = tempName(outDir, ".pptx.tmp");
     cleanup.push(tmpOut);

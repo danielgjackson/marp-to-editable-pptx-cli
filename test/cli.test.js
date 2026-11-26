@@ -185,6 +185,9 @@ test('Marp CLI style command lines', () => {
   fs.writeFileSync(path.join(cwd, 'm.yml'), 'html: true\n')
   assert.equal(run(['-n', '--config-file', 'm.yml', 'decks/a.md'], { cwd }).code, 0)
   assert.equal(run(['-n', '--no-config-file', 'decks/a.md'], { cwd }).code, 0)
+
+  // --no-optimize (an extension) is accepted.
+  assert.equal(run(['-n', '--no-optimize', 'decks/a.md'], { cwd }).code, 0)
 })
 
 test('--update notices a newer Marp config found above the deck', () => {
@@ -272,4 +275,45 @@ test('converts decks in parallel into an output directory', { timeout: 180_000 }
   const again = run(['-u', '-I', 'decks', '-o', 'out'], { cwd })
   assert.equal(again.code, 0, again.err)
   assert.match(again.err, /0 converted, 4 up to date/)
+})
+
+test('optimization stores a repeated background image once', { timeout: 180_000 }, async (t) => {
+  const browser = process.env.CHROME_PATH || detectBrowserPath?.('auto')
+  if (!browser) return t.skip('no Chromium-based browser found')
+  const JSZip = require('jszip')
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'marp2pptx-test-'))
+  fs.writeFileSync(
+    path.join(cwd, 'bg.svg'),
+    '<svg xmlns="http://www.w3.org/2000/svg" width="160" height="90">' +
+      '<rect width="160" height="90" fill="#cde"/><circle cx="80" cy="45" r="30" fill="#468"/></svg>',
+  )
+  fs.writeFileSync(
+    path.join(cwd, 'deck.md'),
+    "---\nmarp: true\nbackgroundImage: url('bg.svg')\n---\n\n# One\n\n---\n\n# Two\n\n---\n\n# Three\n",
+  )
+  async function inspect(extra) {
+    const r = run(['--allow-local-files', '--force', 'deck.md', ...extra], { cwd })
+    assert.equal(r.code, 0, r.err)
+    const buf = fs.readFileSync(path.join(cwd, 'deck.pptx'))
+    const zip = await JSZip.loadAsync(buf)
+    const names = Object.keys(zip.files).filter((n) => !zip.files[n].dir)
+    const media = names.filter((n) => n.startsWith('ppt/media/'))
+    // Every internal relationship target must exist.
+    for (const n of names.filter((n) => n.endsWith('.rels'))) {
+      const base = path.posix.dirname(path.posix.dirname(n))
+      const xml = await zip.file(n).async('string')
+      for (const [el, target] of xml.matchAll(/<Relationship\b[^>]*Target="([^"]+)"[^>]*>/g)) {
+        if (el.includes('TargetMode="External"')) continue
+        const part = path.posix.normalize(path.posix.join(base, target))
+        assert.ok(names.includes(part), `${n} points at missing ${target}`)
+      }
+    }
+    return { size: buf.length, media }
+  }
+  const plain = await inspect(['--no-optimize'])
+  const optimized = await inspect([])
+  assert.equal(plain.media.length, 3, 'one background copy per slide without optimization')
+  assert.equal(optimized.media.length, 1, 'one shared background with optimization')
+  assert.match(optimized.media[0], /^ppt\/media\/[0-9a-f]{16}\.png$/)
+  assert.ok(optimized.size < plain.size / 2, `${optimized.size} < ${plain.size} / 2`)
 })
