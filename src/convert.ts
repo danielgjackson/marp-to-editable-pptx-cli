@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto'
-import { mkdir, rename, unlink, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { format } from 'node:util'
 import { marpCli } from '@marp-team/marp-cli'
@@ -69,6 +69,34 @@ export function marpCliArgs(
 }
 
 /**
+ * CSS added to the rendered HTML before it is converted, to work around
+ * problems in upstream's conversion.
+ *
+ * Fragmented lists (`* item`): upstream reveals every fragment for the export
+ * with `[data-bespoke-marp-fragment="inactive"]{visibility:visible!important}`.
+ * A slide with a CSS background (e.g. the `backgroundImage` directive) has its
+ * background captured as a screenshot with its content hidden, but upstream
+ * hides only the slide's direct children (inline `visibility: hidden
+ * !important`), which the fragments' own rule overrides, so their text was
+ * baked into the background as well as added as editable text. Making
+ * fragments inherit their visibility instead (a more specific `!important`
+ * rule, so it wins whatever the stylesheet order) keeps them visible for
+ * extraction, but hidden along with their parent. This HTML is only used for
+ * the export, so presenting fragments one at a time is not affected.
+ * (patches/marp-to-editable-pptx+1.4.1.patch is an alternative fix, unused.)
+ */
+const EXPORT_CSS =
+  'section [data-bespoke-marp-fragment]{visibility:inherit!important}'
+
+/** Add EXPORT_CSS to an HTML document, at the end of its <head>. */
+function addExportCss(html: string): string {
+  const style = `<style data-marp-to-editable-pptx-cli>${EXPORT_CSS}</style>`
+  const head = html.search(/<\/head\s*>/i)
+  if (head >= 0) return html.slice(0, head) + style + html.slice(head)
+  return style + html
+}
+
+/**
  * Marp CLI runs in this process and is captured by patching console.*, so
  * runs are serialized: with --parallel, only the (slow) browser step is parallel.
  */
@@ -133,6 +161,7 @@ export async function convertFile(req: ConvertRequest): Promise<void> {
       )
     }
     signal.throwIfAborted()
+    await writeFile(htmlPath, addExportCss(await readFile(htmlPath, 'utf8')))
 
     // Step 2: HTML → editable PPTX (marp-to-editable-pptx)
     let pptx = await generateNativePptx({

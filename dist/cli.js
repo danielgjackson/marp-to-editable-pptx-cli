@@ -2376,18 +2376,9 @@ async function hideSectionChildren(page, slideIdx) {
   const found = await page.evaluate((id) => {
     const section = document.getElementById(id);
     if (!section) return false;
-    const saved = [];
-    section.querySelectorAll("*").forEach((node) => {
-      const el = node;
-      if (!el.style) return;
-      saved.push([
-        el,
-        el.style.getPropertyValue("visibility"),
-        el.style.getPropertyPriority("visibility")
-      ]);
-      el.style.setProperty("visibility", "hidden", "important");
-    });
-    window.__nativePptxHiddenSectionStyles = saved;
+    Array.from(section.children).forEach(
+      (el) => el.style.setProperty("visibility", "hidden", "important")
+    );
     return true;
   }, String(slideIdx + 1));
   if (!found) {
@@ -2397,15 +2388,13 @@ async function hideSectionChildren(page, slideIdx) {
   }
 }
 async function restoreSectionChildren(page, slideIdx) {
-  void slideIdx;
-  await page.evaluate(() => {
-    const saved = window.__nativePptxHiddenSectionStyles ?? [];
-    delete window.__nativePptxHiddenSectionStyles;
-    for (const [el, value, priority] of saved) {
-      if (value) el.style.setProperty("visibility", value, priority);
-      else el.style.removeProperty("visibility");
-    }
-  });
+  await page.evaluate((id) => {
+    const section = document.getElementById(id);
+    if (!section) return;
+    Array.from(section.children).forEach(
+      (el) => el.style.removeProperty("visibility")
+    );
+  }, String(slideIdx + 1));
 }
 function isLocalImagePath(url) {
   if (!url) return false;
@@ -3276,6 +3265,13 @@ function marpCliArgs(input, htmlPath, config, opts) {
   args.push(...opts.marpArgs);
   return args;
 }
+var EXPORT_CSS = "section [data-bespoke-marp-fragment]{visibility:inherit!important}";
+function addExportCss(html) {
+  const style = `<style data-marp-to-editable-pptx-cli>${EXPORT_CSS}</style>`;
+  const head = html.search(/<\/head\s*>/i);
+  if (head >= 0) return html.slice(0, head) + style + html.slice(head);
+  return style + html;
+}
 var marpQueue = Promise.resolve();
 function serialized(fn) {
   const result = marpQueue.then(fn, fn);
@@ -3323,6 +3319,7 @@ ${output}` : "")
       );
     }
     signal.throwIfAborted();
+    await (0, import_promises2.writeFile)(htmlPath, addExportCss(await (0, import_promises2.readFile)(htmlPath, "utf8")));
     let pptx = await generateNativePptx({
       htmlPath,
       browserPath: req.browserPath,

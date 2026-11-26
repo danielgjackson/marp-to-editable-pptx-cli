@@ -231,7 +231,7 @@ Notes:
 
 ## How it works
 
-1. Marp CLI renders the Markdown to HTML in a temporary file next to the source, so that relative image paths resolve.
+1. Marp CLI renders the Markdown to HTML in a temporary file next to the source, so that relative image paths resolve. A small stylesheet is added to that HTML to work around a problem in the conversion (see [Fixes for upstream problems](#fixes-for-upstream-problems)).
 2. `marp-to-editable-pptx`'s `generateNativePptx()` opens that HTML in a headless browser, reads the laid-out slides from the DOM, and builds an editable presentation with PptxGenJS.
 3. The PPTX package is then made smaller, without changing what it shows (skip this with `--no-optimize`):
    - **Shared images.** PptxGenJS writes a separate copy of an image for every slide that uses it, so a deck-wide background image is repeated on every slide. Each file in `ppt/media/` is renamed after a SHA-256 hash of its content, so identical copies become one file, and the slides' relationships are pointed at it.
@@ -252,15 +252,26 @@ No submodule or fork is needed. Upstream's package doesn't ship compiled JavaScr
 
 Upstream's runtime libraries (`@marp-team/marp-cli`, `puppeteer-core`, `@puppeteer/browsers`, `pptxgenjs`, `cosmiconfig`) are listed as direct dependencies with the same version ranges. They stay external to the bundle and resolve reliably with any package manager.
 
-To move to a newer upstream release, change the tag in `package.json`, copy over any changed version ranges for the libraries above, and run `npm install && npm test`. If patch-package then reports that a patch no longer applies, check whether upstream has fixed the problem (then delete the patch) or update the patch (see below).
+To move to a newer upstream release, change the tag in `package.json`, copy over any changed version ranges for the libraries above, and run `npm install && npm test`. Then check whether upstream has fixed the problems listed below, and if so remove the workarounds.
 
-### Patches to upstream
+### Fixes for upstream problems
 
-Fixes to upstream's sources are kept in `patches/` and applied with [patch-package](https://github.com/ds300/patch-package). `npm install` applies them (the `postinstall` script, `scripts/apply-patches.js`), and `npm run bundle` applies them again before bundling, so `dist/cli.js` is never built from unpatched sources. When the tool is installed to be used rather than built, upstream isn't installed and the script does nothing.
+**Fragmented lists baked into backgrounds.** A slide with a CSS background (the `backgroundImage` directive, or a gradient from the theme) has that background captured as a screenshot of the slide with its content hidden. Upstream hides only the slide's direct children, which leaves visible any element with its own `visibility` rule. In particular, the items of a fragmented list (`* item` rather than `- item`) are revealed for the export with `[data-bespoke-marp-fragment="inactive"]{visibility:visible!important}`, so they were baked into the background image as well as added as editable text.
 
-- `marp-to-editable-pptx+1.4.1.patch`: a slide with a CSS background (the `backgroundImage` directive, or a gradient from the theme) has that background captured as a screenshot of the slide with its content hidden. Upstream hides only the slide's direct children, which leaves visible any element with its own `visibility` rule. In particular, the items of a fragmented list (`* item` rather than `- item`) are revealed for the export with `visibility: visible !important`, so they were baked into the background image as well as added as editable text. The patch hides every element in the slide, and restores each one's previous inline style afterwards.
+This tool works around it by adding a rule to the temporary HTML before conversion (`EXPORT_CSS` in `src/convert.ts`):
 
-To change a patch, edit the file under `node_modules/marp-to-editable-pptx/`, then run `npx patch-package marp-to-editable-pptx` to regenerate it.
+```css
+section [data-bespoke-marp-fragment] { visibility: inherit !important; }
+```
+
+It is more specific than upstream's rule, so it wins whatever the stylesheet order. Fragments then follow their parent's visibility: visible when the text is extracted, and hidden with their parent for the background screenshot. The test `fragmented lists are not baked into a rasterized background` checks this. The rule only affects the HTML used for the export, not presenting a deck with Marp. Decks converted by an older version of this tool can use Marp CLI's `bare` template (`marp2pptx deck.md -- --template bare`) instead, which has no fragments.
+
+**Alternative: patching upstream.** `patches/marp-to-editable-pptx+1.4.1.patch` fixes the same problem in upstream's source instead: it hides every element in the slide, not just the direct children, and restores each one's previous inline style afterwards. That covers any element with its own `visibility` rule, not only fragments. It is **not applied** (nothing installs [patch-package](https://github.com/ds300/patch-package)), but it is kept as the basis for an upstream fix or in case the CSS approach stops working. To use it:
+
+1. `npm install --save-dev patch-package`, and add `"postinstall": "patch-package"` to the scripts. When the tool is installed to be used rather than built (e.g. `npm install --global github:...`), neither upstream nor patch-package is installed, so a `postinstall` script must then do nothing, not fail.
+2. Run `npx patch-package` before `npm run bundle`, so that `dist/cli.js` is not built from unpatched sources.
+
+To change the patch, edit the file under `node_modules/marp-to-editable-pptx/`, then run `npx patch-package marp-to-editable-pptx` to regenerate it.
 
 ## Development
 

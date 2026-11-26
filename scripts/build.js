@@ -7,18 +7,11 @@
 // npm packages stay external and are resolved from node_modules at runtime.
 'use strict'
 
-const { execFileSync } = require('node:child_process')
 const fs = require('node:fs')
 const path = require('node:path')
 const esbuild = require('esbuild')
 
 const root = path.resolve(__dirname, '..')
-
-// Make sure the fixes in patches/ are in the upstream sources before they are
-// bundled (normally already done by postinstall; applying again is harmless).
-execFileSync(process.execPath, [path.join(__dirname, 'apply-patches.js')], {
-  stdio: 'inherit',
-})
 const upstreamDir = path.dirname(
   require.resolve('marp-to-editable-pptx/package.json', { paths: [root] }),
 )
